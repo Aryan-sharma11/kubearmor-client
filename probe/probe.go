@@ -582,10 +582,62 @@ func getAnnotatedPodLabels(m map[string]string) mapset.Set[string] {
 	return b
 }
 
+func getSecurityPostureAndVisibility(c *k8s.Client) (map[string][]string, error) {
+	// Namespace/host security posture and visibility setting
+
+	var kd *KubeArmorProbeData
+
+	mp := make(map[string][]string)
+
+	namespaces, err := c.K8sClientset.CoreV1().Namespaces().List(context.Background(), metav1.ListOptions{})
+
+	fmt.Println(namespaces.Items)
+	if err != nil {
+		return mp, err
+	}
+
+	for _, ns := range namespaces.Items {
+
+		filePosture := kd.ContainerDefaultPosture.FileAction
+
+		capabilityPosture := kd.HostDefaultPosture.CapabilitiesAction
+
+		networkPosture := kd.HostDefaultPosture.NetworkAction
+
+		if len(ns.Annotations["kubearmor-file-posture"]) > 0 {
+
+			filePosture = ns.Annotations["kubearmor-file-posture"]
+		}
+		if len(ns.Annotations["kubearmor-capabilties-posture"]) > 0 {
+
+			capabilityPosture = ns.Annotations["kubearmor-capabilities-posture"]
+		}
+		if len(ns.Annotations["kubearmor-network-posture"]) > 0 {
+
+			networkPosture = ns.Annotations["kubearmor-network-posture"]
+		}
+
+		var postureString string = "file ( " + filePosture + " ) capabilities ( " + capabilityPosture + " ) network ( " + networkPosture + " )"
+
+		mp[ns.Name] = append(mp[ns.Name], postureString)
+		mp[ns.Name] = append(mp[ns.Name], ns.Annotations["kubearmor-visibility"])
+	}
+
+	return mp, err
+
+}
+
 func getAnnotatedPods(c *k8s.Client) error {
 	// Annotated Pods Description
 	var data [][]string
+
 	pods, err := c.K8sClientset.CoreV1().Pods("").List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
+
+	mp, err := getSecurityPostureAndVisibility(c)
+
 	if err != nil {
 		return err
 	}
@@ -596,25 +648,30 @@ func getAnnotatedPods(c *k8s.Client) error {
 	}
 
 	for _, p := range pods.Items {
+
 		if p.Annotations["kubearmor-policy"] == "enabled" {
 			armoredPod, err := c.K8sClientset.CoreV1().Pods(p.Namespace).Get(context.Background(), p.Name, metav1.GetOptions{})
 			if err != nil {
 				return err
 			}
-			data = append(data, []string{armoredPod.Namespace, armoredPod.Name, ""})
+
+			data = append(data, []string{armoredPod.Namespace, mp[armoredPod.Namespace][0], mp[armoredPod.Namespace][1], armoredPod.Name, ""})
 			labels := getAnnotatedPodLabels(armoredPod.Labels)
+
 			for policyKey, policyValue := range policyMap {
 				s2 := sliceToSet(policyValue)
 				if s2.IsSubset(labels) {
 					if checkIfDataAlreadyContainsPodName(data, armoredPod.Name, policyKey) {
 						continue
 					} else {
-						data = append(data, []string{armoredPod.Namespace, armoredPod.Name, policyKey})
+						data = append(data, []string{armoredPod.Namespace, mp[armoredPod.Namespace][0], mp[armoredPod.Namespace][1], armoredPod.Name, policyKey})
+
 					}
 				}
 			}
 		}
 	}
+
 	_, err = boldWhite.Printf("Armored Up pods : \n")
 	if err != nil {
 		color.Red(" Error printing bold text")
@@ -626,13 +683,13 @@ func getAnnotatedPods(c *k8s.Client) error {
 	})
 
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"NAMESPACE", "NAME", "POLICY"})
+	table.SetHeader([]string{"NAMESPACE", "SECURITY POSTURE", "VISIBILITY", "NAME", "POLICY"})
 
 	for _, v := range data {
 		table.Append(v)
 	}
 	table.SetRowLine(true)
-	table.SetAutoMergeCellsByColumnIndex([]int{0, 1})
+	table.SetAutoMergeCellsByColumnIndex([]int{0, 1, 2})
 	table.Render()
 	return nil
 }
@@ -676,10 +733,10 @@ func checkIfDataAlreadyContainsPodName(input [][]string, name string, policy str
 	for _, slice := range input {
 		//if slice contains podname, then append the policy to the existing policies
 		if slices.Contains(slice, name) {
-			if slice[2] == "" {
-				slice[2] = policy
+			if slice[4] == "" {
+				slice[4] = policy
 			} else {
-				slice[2] = slice[2] + "\n" + policy
+				slice[4] = slice[4] + "\n" + policy
 			}
 			return true
 		}
