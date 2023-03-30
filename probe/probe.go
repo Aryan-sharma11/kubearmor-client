@@ -42,6 +42,7 @@ var white = color.New(color.FgWhite)
 var boldWhite = white.Add(color.Bold)
 var green = color.New(color.FgGreen).SprintFunc()
 var itwhite = color.New(color.Italic).Add(color.Italic).SprintFunc()
+var postureData []string
 
 // Options provides probe daemonset options install
 type Options struct {
@@ -513,6 +514,12 @@ func readDataFromKubeArmor(c *k8s.Client, o Options, nodeName string) error {
 		log.Println("an error occured when printing output", err)
 		return err
 	}
+	err = setPostureData(buf)
+
+	if err != nil {
+		log.Println("an error occured while setting posture data ", err)
+		return err
+	}
 	return nil
 }
 
@@ -532,9 +539,10 @@ func printKubeArmorProbeOutput(buf []byte) error {
 	data = append(data, []string{" ", "Active LSM:", green(kd.ActiveLSM)})
 	data = append(data, []string{" ", "Host Security:", green(strconv.FormatBool(kd.HostSecurity))})
 	data = append(data, []string{" ", "Container Security:", green(strconv.FormatBool(kd.ContainerSecurity))})
-	data = append(data, []string{" ", "Container Default Posture:", green(kd.ContainerDefaultPosture.FileAction) + itwhite("(File)"), green(kd.ContainerDefaultPosture.FileAction) + itwhite("(Capabilities)"), green(kd.ContainerDefaultPosture.NetworkAction) + itwhite("(Network)")})
+	data = append(data, []string{" ", "Container Default Posture:", green(kd.ContainerDefaultPosture.FileAction) + itwhite("(File)"), green(kd.ContainerDefaultPosture.CapabilitiesAction) + itwhite("(Capabilities)"), green(kd.ContainerDefaultPosture.NetworkAction) + itwhite("(Network)")})
 	data = append(data, []string{" ", "Host Default Posture:", green(kd.HostDefaultPosture.FileAction) + itwhite("(File)"), green(kd.HostDefaultPosture.CapabilitiesAction) + itwhite("(Capabilities)"), green(kd.HostDefaultPosture.NetworkAction) + itwhite("(Network)")})
 	renderOutputInTableWithNoBorders(data)
+
 	return nil
 }
 
@@ -582,49 +590,55 @@ func getAnnotatedPodLabels(m map[string]string) mapset.Set[string] {
 	return b
 }
 
+// Store container default posture data
+func setPostureData(buf []byte) error {
+	var kd *KubeArmorProbeData
+	var json = jsoniter.ConfigCompatibleWithStandardLibrary
+	err := json.Unmarshal(buf, &kd)
+	if err != nil {
+		log.Println("an error occured when parsing file", err)
+		return err
+	}
+
+	postureData = append(postureData, kd.ContainerDefaultPosture.FileAction)
+	postureData = append(postureData, kd.ContainerDefaultPosture.CapabilitiesAction)
+	postureData = append(postureData, kd.ContainerDefaultPosture.NetworkAction)
+
+	return nil
+}
+
 func getSecurityPostureAndVisibility(c *k8s.Client) (map[string][]string, error) {
 	// Namespace/host security posture and visibility setting
-
-	var kd *KubeArmorProbeData
-
 	mp := make(map[string][]string)
-
 	namespaces, err := c.K8sClientset.CoreV1().Namespaces().List(context.Background(), metav1.ListOptions{})
 
-	fmt.Println(namespaces.Items)
 	if err != nil {
 		return mp, err
 	}
 
 	for _, ns := range namespaces.Items {
 
-		filePosture := kd.ContainerDefaultPosture.FileAction
-
-		capabilityPosture := kd.HostDefaultPosture.CapabilitiesAction
-
-		networkPosture := kd.HostDefaultPosture.NetworkAction
+		filePosture := postureData[0]
+		capabilityPosture := postureData[1]
+		networkPosture := postureData[2]
 
 		if len(ns.Annotations["kubearmor-file-posture"]) > 0 {
-
 			filePosture = ns.Annotations["kubearmor-file-posture"]
 		}
-		if len(ns.Annotations["kubearmor-capabilties-posture"]) > 0 {
 
+		if len(ns.Annotations["kubearmor-capabilities-posture"]) > 0 {
 			capabilityPosture = ns.Annotations["kubearmor-capabilities-posture"]
 		}
-		if len(ns.Annotations["kubearmor-network-posture"]) > 0 {
 
+		if len(ns.Annotations["kubearmor-network-posture"]) > 0 {
 			networkPosture = ns.Annotations["kubearmor-network-posture"]
 		}
 
-		var postureString string = "file ( " + filePosture + " ) capabilities ( " + capabilityPosture + " ) network ( " + networkPosture + " )"
-
-		mp[ns.Name] = append(mp[ns.Name], postureString)
+		mp[ns.Name] = append(mp[ns.Name], "file("+filePosture+"), capabilities("+capabilityPosture+"), network("+networkPosture+")")
 		mp[ns.Name] = append(mp[ns.Name], ns.Annotations["kubearmor-visibility"])
 	}
 
 	return mp, err
-
 }
 
 func getAnnotatedPods(c *k8s.Client) error {
@@ -637,7 +651,6 @@ func getAnnotatedPods(c *k8s.Client) error {
 	}
 
 	mp, err := getSecurityPostureAndVisibility(c)
-
 	if err != nil {
 		return err
 	}
