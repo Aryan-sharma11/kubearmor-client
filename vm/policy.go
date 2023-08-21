@@ -40,7 +40,7 @@ type PolicyOptions struct {
 	GRPC string
 }
 
-func sendPolicyOverGRPC(o PolicyOptions, policyEventData []byte, kind string) error {
+func sendPolicyOverGRPC(o PolicyOptions, policyEventData []byte, kind string, eventType string) error {
 	gRPC := ""
 
 	if o.GRPC != "" {
@@ -66,16 +66,75 @@ func sendPolicyOverGRPC(o PolicyOptions, policyEventData []byte, kind string) er
 
 	if kind == KubeArmorHostPolicy {
 		resp, err := client.HostPolicy(context.Background(), &req)
-		if err != nil || resp.Status != 1 {
+		if err != nil {
 			return fmt.Errorf("failed to send policy")
 		}
+		if eventType == "ADDED" {
+
+			if resp.Status == 1 {
+				if resp.Present == true {
+					fmt.Println("Policy configured successfully ")
+				} else {
+					fmt.Println("Policy applied successfully")
+				}
+			} else {
+				return fmt.Errorf(" Failed to apply policy")
+			}
+
+		}
+		if eventType == "DELETED" {
+
+			if resp.Status == 1 {
+				if resp.Applied {
+					fmt.Println("Policy Deleted successfully")
+				} else if resp.Present {
+					return fmt.Errorf("Failed to delete policy")
+				} else {
+					return fmt.Errorf("Policy doesn't exist")
+				}
+			} else {
+				return fmt.Errorf("Failed to delete policy")
+			}
+
+		}
+
 	} else {
+
 		resp, err := client.ContainerPolicy(context.Background(), &req)
-		if err != nil || resp.Status != 1 {
+		if err != nil {
 			return fmt.Errorf("failed to send policy")
 		}
+		if eventType == "ADDED" {
+
+			if resp.Status == 1 {
+				if resp.Present == true {
+					fmt.Println("Policy configured successfully ")
+				} else {
+					fmt.Println("Policy applied successfully")
+				}
+			} else {
+				return fmt.Errorf(" Failed to apply policy")
+			}
+
+		}
+		if eventType == "DELETED" {
+
+			if resp.Status == 1 {
+				if resp.Applied {
+					fmt.Println("Policy Deleted successfully")
+				} else if resp.Present {
+					return fmt.Errorf("Failed to delete policy")
+				} else {
+					return fmt.Errorf("Policy doesn't exist")
+				}
+			} else {
+				return fmt.Errorf("Failed to delete policy")
+			}
+
+		}
+
 	}
-	fmt.Println("Success")
+
 	return nil
 }
 
@@ -198,7 +257,7 @@ func PolicyHandling(t string, path string, o PolicyOptions, httpAddress string, 
 			}
 		} else {
 			// Systemd mode, hence send policy over gRPC
-			if err = sendPolicyOverGRPC(o, policyEventData, k.Kind); err != nil {
+			if err = sendPolicyOverGRPC(o, policyEventData, k.Kind, t); err != nil {
 				return err
 
 			}
