@@ -69,34 +69,9 @@ func sendPolicyOverGRPC(o PolicyOptions, policyEventData []byte, kind string, ev
 		if err != nil {
 			return fmt.Errorf("failed to send policy")
 		}
-		if eventType == "ADDED" {
+		err = responseHandler(resp, eventType)
 
-			if resp.Status == 1 {
-				if resp.Present == true {
-					fmt.Println("Policy configured successfully ")
-				} else {
-					fmt.Println("Policy applied successfully")
-				}
-			} else {
-				return fmt.Errorf(" Failed to apply policy")
-			}
-
-		}
-		if eventType == "DELETED" {
-
-			if resp.Status == 1 {
-				if resp.Applied {
-					fmt.Println("Policy Deleted successfully")
-				} else if resp.Present {
-					return fmt.Errorf("Failed to delete policy")
-				} else {
-					return fmt.Errorf("Policy doesn't exist")
-				}
-			} else {
-				return fmt.Errorf("Failed to delete policy")
-			}
-
-		}
+		return err
 
 	} else {
 
@@ -104,38 +79,12 @@ func sendPolicyOverGRPC(o PolicyOptions, policyEventData []byte, kind string, ev
 		if err != nil {
 			return fmt.Errorf("failed to send policy")
 		}
-		if eventType == "ADDED" {
 
-			if resp.Status == 1 {
-				if resp.Present == true {
-					fmt.Println("Policy configured successfully ")
-				} else {
-					fmt.Println("Policy applied successfully")
-				}
-			} else {
-				return fmt.Errorf(" Failed to apply policy")
-			}
+		err = responseHandler(resp, eventType)
 
-		}
-		if eventType == "DELETED" {
-
-			if resp.Status == 1 {
-				if resp.Applied {
-					fmt.Println("Policy Deleted successfully")
-				} else if resp.Present {
-					return fmt.Errorf("Failed to delete policy")
-				} else {
-					return fmt.Errorf("Policy doesn't exist")
-				}
-			} else {
-				return fmt.Errorf("Failed to delete policy")
-			}
-
-		}
+		return err
 
 	}
-
-	return nil
 }
 
 func sendPolicyOverHTTP(address string, kind string, policyEventData []byte) error {
